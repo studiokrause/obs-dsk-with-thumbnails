@@ -1159,29 +1159,46 @@ double DownstreamKeyer::GetAspectRatio() const
 	return 9.0 / 16.0;
 }
 
-int DownstreamKeyer::GetAvailableWidth() const
-{
-	// The scrollbar width is always reserved so its appearing or disappearing does not change the layout
-	const int scrollBar = scenesList->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, scenesList);
-	return scenesList->contentsRect().width() - scrollBar - 1;
-}
-
-int DownstreamKeyer::GetEffectiveThumbnailSize() const
+int DownstreamKeyer::GetThumbnailSizeForWidth(int available) const
 {
 	if (!thumbnailAutosize)
 		return thumbnailSize;
 	// Autosize: as many columns of roughly the slider size as fit, stretched to fill the width exactly
-	const int available = GetAvailableWidth();
 	const int columns = std::max(1, available / (thumbnailSize + 2 * THUMBNAIL_MARGIN));
 	return std::max(THUMBNAIL_MIN_SIZE / 2, available / columns - 2 * THUMBNAIL_MARGIN);
 }
 
-QSize DownstreamKeyer::GetThumbnailCellSize() const
+QSize DownstreamKeyer::GetCellSizeForThumbnail(int size) const
 {
-	const int size = GetEffectiveThumbnailSize();
 	const int textHeight = scenesList->fontMetrics().height();
 	const int height = (int)(size * GetAspectRatio());
 	return QSize(size + 2 * THUMBNAIL_MARGIN, height + textHeight + 3 * THUMBNAIL_MARGIN);
+}
+
+int DownstreamKeyer::GetAvailableWidth() const
+{
+	// Room for the vertical scrollbar is reserved only when the thumbnails laid out at the full width would
+	// not fit in height. Deciding from the computed layout, not from the scrollbar's current visibility,
+	// avoids a loop of the scrollbar hiding and showing while the thumbnails resize.
+	const QRect rect = scenesList->contentsRect();
+	const int full = rect.width() - 1;
+	const int scrollBar = scenesList->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, scenesList);
+	const QSize cell = GetCellSizeForThumbnail(GetThumbnailSizeForWidth(full));
+	const bool fits = cell.width() <= full;
+	const int columns = fits ? std::max(1, full / cell.width()) : 1;
+	const int rows = (scenesList->count() + columns - 1) / columns;
+	const int height = rect.height() - (fits ? 0 : scrollBar);
+	return rows * cell.height() > height ? full - scrollBar : full;
+}
+
+int DownstreamKeyer::GetEffectiveThumbnailSize() const
+{
+	return GetThumbnailSizeForWidth(GetAvailableWidth());
+}
+
+QSize DownstreamKeyer::GetThumbnailCellSize() const
+{
+	return GetCellSizeForThumbnail(GetEffectiveThumbnailSize());
 }
 
 void DownstreamKeyer::ApplyViewMode()
@@ -1219,6 +1236,8 @@ void DownstreamKeyer::UpdateThumbnailLayout()
 void DownstreamKeyer::UpdateThumbnails()
 {
 	const bool thumbnails = showThumbnails && isVisible();
+	if (thumbnails)
+		UpdateThumbnailLayout();
 	// In studio mode the program shows a private duplicate of the scene, so the original is not active
 	obs_source_t *programScene = view || canvas ? nullptr : obs_frontend_get_current_scene();
 	std::vector<obs_source_t *> sources;

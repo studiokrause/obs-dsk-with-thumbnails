@@ -89,6 +89,8 @@ private:
 	void ApplyViewMode();
 	void UpdateThumbnailLayout();
 	int GetAvailableWidth() const;
+	int GetThumbnailSizeForWidth(int available) const;
+	QSize GetCellSizeForThumbnail(int size) const;
 	void UpdateThumbnails();
 
 protected:

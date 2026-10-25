@@ -64,7 +64,7 @@ scenes per frame) and only while the DSK tab is visible, so the extra GPU load i
 ## Versions
 
 Fork versions continue from the upstream version they are based on, with a fork number appended:
-`0.4.4.3` = upstream Downstream Keyer 0.4.4 + fork release 3.
+`0.4.4.4` = upstream Downstream Keyer 0.4.4 + fork release 4.
 
 ## Install (Windows)
 
