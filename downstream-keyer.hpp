@@ -4,6 +4,7 @@
 #include <QComboBox>
 #include <QLabel>
 #include <QListWidget>
+#include <QMouseEvent>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStyledItemDelegate>
@@ -27,6 +28,20 @@ public:
 
 enum transitionType { match, show, hide, override };
 
+// Scene list that does not scroll to the clicked scene, so a partly visible scene does not jump.
+class DownstreamKeyerSceneList : public QListWidget {
+private:
+	bool clicking = false;
+
+protected:
+	void mousePressEvent(QMouseEvent *event) override;
+	void mouseReleaseEvent(QMouseEvent *event) override;
+
+public:
+	explicit DownstreamKeyerSceneList(QWidget *parent) : QListWidget(parent) {}
+	void scrollTo(const QModelIndex &index, ScrollHint hint = EnsureVisible) override;
+};
+
 class DownstreamKeyer : public QWidget {
 	Q_OBJECT
 
@@ -37,7 +52,7 @@ private:
 	obs_source_t *showTransition;
 	obs_source_t *hideTransition;
 	obs_source_t *overrideTransition;
-	QListWidget *scenesList;
+	DownstreamKeyerSceneList *scenesList;
 	QToolBar *scenesToolbar;
 	uint32_t transitionDuration;
 	uint32_t showTransitionDuration;
@@ -55,8 +70,10 @@ private:
 	bool showThumbnails = false;
 	int thumbnailSize = 160;
 	QTimer thumbnailTimer;
+	bool thumbnailAutosize = false;
+	QToolBar *thumbnailToolbar;
+	QCheckBox *thumbnailAutosizeCheckBox;
 	QSlider *thumbnailSlider;
-	QAction *thumbnailSliderAction;
 
 	static void source_rename(void *data, calldata_t *calldata);
 	static void source_remove(void *data, calldata_t *calldata);
@@ -70,6 +87,8 @@ private:
 
 	void ChangeSceneIndex(bool relative, int idx, int invalidIdx);
 	void ApplyViewMode();
+	void UpdateThumbnailLayout();
+	int GetAvailableWidth() const;
 	void UpdateThumbnails();
 
 protected:
@@ -114,6 +133,7 @@ public:
 	bool GetThumbnails() const { return showThumbnails; }
 	void SetThumbnailSize(int size);
 	int GetThumbnailSize() const { return thumbnailSize; }
+	void SetThumbnailAutosize(bool autosize);
 	int GetEffectiveThumbnailSize() const;
 	QSize GetThumbnailCellSize() const;
 	double GetAspectRatio() const;

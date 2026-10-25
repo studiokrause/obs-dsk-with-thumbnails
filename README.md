@@ -16,8 +16,13 @@ Inspired by: https://github.com/obsproject/obs-studio/pull/4491/
   (gear menu → *Thumbnails*). Transparent areas of a scene are shown on a checkerboard.
   In the thumbnail view **left click** shows the DSK with that scene, **right click** on the scene
   that is shown hides it.
-- **Adjustable thumbnail size** – slider in the DSK toolbar, or **Ctrl + mouse wheel** over the list
-  (48–480 px). The setting is saved per DSK in the scene collection.
+- **Adjustable thumbnail size** – slider in the thumbnail row under the DSK toolbar, or
+  **Ctrl + mouse wheel** over the list (48–480 px). Thumbnails wider than the dock stick out and the list
+  scrolls horizontally.
+- **Autosize** – checkbox next to the slider: thumbnails are fitted to the width of the dock (as many
+  columns of roughly the slider size as fit, stretched to fill the width).
+- Clicking a scene does not scroll the list, also when the scene is only partly visible.
+- All thumbnail settings are saved per DSK in the scene collection.
 - **Tally** – a red border is drawn around a scene (thumbnail, or row in list mode) while it is visible
   in the program output: shown by the DSK (also during its transition), being the current program scene,
   or nested in what is on air.
@@ -31,8 +36,20 @@ scenes per frame) and only while the DSK tab is visible, so the extra GPU load i
   (menu zębatki → *Miniatury*). Przezroczyste obszary sceny widać na szachownicy.
   W widoku miniatur **lewy przycisk** włącza DSK z tej sceny, **prawy przycisk** na włączonej scenie
   ją wyłącza.
-- **Regulowana wielkość miniatur** – suwak w pasku narzędzi DSK lub **Ctrl + kółko myszy** nad listą
-  (48–480 px). Ustawienie zapisuje się dla każdego DSK w kolekcji scen.
+- **Regulowana wielkość miniatur** – suwak w wierszu miniatur pod paskiem narzędzi DSK lub
+  **Ctrl + kółko myszy** nad listą (48–480 px). Miniatury szersze od panelu wystają poza niego, a lista
+  przewija się w poziomie.
+- **Autosize (Dopasuj)** – pole obok suwaka: miniatury dopasowują się do szerokości panelu (tyle kolumn
+  w przybliżeniu o rozmiarze z suwaka, ile się zmieści, rozciągniętych na całą szerokość).
+- Kliknięcie sceny nie przewija listy, również gdy scena jest widoczna tylko częściowo.
+- Ustawienia miniatur zapisują się dla każdego DSK w kolekcji scen.
+
+### Przejścia i „Tie” (zachowanie z oryginału)
+
+- *Show Transition* działa tylko wtedy, gdy DSK niczego nie wyświetla. Przełączenie z jednej sceny DSK
+  na inną używa *Transition*, a wyłączenie – *Hide Transition* (gdy puste, też *Transition*).
+- Pole z kłódką w pasku narzędzi to *Tie*: gdy jest zaznaczone, kliknięcie sceny nie zmienia DSK od razu –
+  zmiana następuje dopiero przy przełączeniu sceny głównej.
 - **Tally** – czerwona ramka wokół sceny (miniatury lub wiersza listy), gdy scena jest widoczna w programie:
   wywołana przez DSK (również w trakcie przejścia), jest bieżącą sceną programu albo jest zagnieżdżona
   w tym, co jest na antenie.
@@ -42,12 +59,12 @@ scenes per frame) and only while the DSK tab is visible, so the extra GPU load i
 - New keyers no longer get a random *Hide After* value (the field was not initialized). A random tiny
   value made the DSK hide immediately, so no scene could be selected. Saved values below 100 ms are
   treated as 0 (off).
-- Thumbnails never get wider than the dock; a cell wider than the list used to leave an empty row above the scenes.
+- Thumbnails wider than the dock no longer leave an empty row above the scenes.
 
 ## Versions
 
 Fork versions continue from the upstream version they are based on, with a fork number appended:
-`0.4.4.2` = upstream Downstream Keyer 0.4.4 + fork release 2.
+`0.4.4.3` = upstream Downstream Keyer 0.4.4 + fork release 3.
 
 ## Install (Windows)
 

@@ -51,7 +51,7 @@ DownstreamKeyer::DownstreamKeyer(int channel, QString name, obs_view_t *v, obs_c
 	layout->setSpacing(0);
 	layout->setContentsMargins(0, 0, 0, 0);
 
-	scenesList = new QListWidget(this);
+	scenesList = new DownstreamKeyerSceneList(this);
 	scenesList->setObjectName(QStringLiteral("scenes"));
 	QSizePolicy sizePolicy6(QSizePolicy::Preferred, QSizePolicy::Expanding);
 	sizePolicy6.setHorizontalStretch(0);
@@ -138,6 +138,19 @@ DownstreamKeyer::DownstreamKeyer(int channel, QString name, obs_view_t *v, obs_c
 		}
 	}
 
+	layout->addWidget(scenesToolbar);
+
+	// Thumbnail controls get their own row, away from the tie checkbox
+	thumbnailToolbar = new QToolBar(this);
+	thumbnailToolbar->setObjectName(QStringLiteral("thumbnailToolbar"));
+	thumbnailToolbar->setFloatable(false);
+
+	thumbnailAutosizeCheckBox = new QCheckBox(QT_UTF8(obs_module_text("Autosize")), this);
+	thumbnailAutosizeCheckBox->setObjectName(QStringLiteral("thumbnailAutosize"));
+	thumbnailAutosizeCheckBox->setToolTip(QT_UTF8(obs_module_text("AutosizeTooltip")));
+	connect(thumbnailAutosizeCheckBox, &QCheckBox::toggled, this, &DownstreamKeyer::SetThumbnailAutosize);
+	thumbnailToolbar->addWidget(thumbnailAutosizeCheckBox);
+
 	thumbnailSlider = new QSlider(Qt::Horizontal, this);
 	thumbnailSlider->setObjectName(QStringLiteral("thumbnailSize"));
 	thumbnailSlider->setToolTip(QT_UTF8(obs_module_text("ThumbnailSize")));
@@ -145,12 +158,12 @@ DownstreamKeyer::DownstreamKeyer(int channel, QString name, obs_view_t *v, obs_c
 	thumbnailSlider->setSingleStep(8);
 	thumbnailSlider->setPageStep(32);
 	thumbnailSlider->setValue(thumbnailSize);
-	thumbnailSlider->setMaximumWidth(120);
+	thumbnailSlider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 	connect(thumbnailSlider, &QSlider::valueChanged, this, &DownstreamKeyer::SetThumbnailSize);
-	thumbnailSliderAction = scenesToolbar->addWidget(thumbnailSlider);
-	thumbnailSliderAction->setVisible(false);
+	thumbnailToolbar->addWidget(thumbnailSlider);
+	thumbnailToolbar->setVisible(false);
 
-	layout->addWidget(scenesToolbar);
+	layout->addWidget(thumbnailToolbar);
 
 	layout->addItem(new QSpacerItem(150, 0, QSizePolicy::Fixed, QSizePolicy::Minimum));
 
@@ -444,6 +457,7 @@ void DownstreamKeyer::Save(obs_data_t *data)
 	obs_data_set_bool(data, "tie", tie->isChecked());
 	obs_data_set_bool(data, "thumbnails", showThumbnails);
 	obs_data_set_int(data, "thumbnail_size", thumbnailSize);
+	obs_data_set_bool(data, "thumbnail_autosize", thumbnailAutosize);
 	obs_data_array_t *sceneArray = obs_data_array_create();
 	for (int i = 0; i < scenesList->count(); i++) {
 		auto item = scenesList->item(i);
@@ -657,6 +671,7 @@ void DownstreamKeyer::Load(obs_data_t *data)
 	tie->setChecked(obs_data_get_bool(data, "tie"));
 	const int ts = (int)obs_data_get_int(data, "thumbnail_size");
 	SetThumbnailSize(ts > 0 ? ts : 160);
+	SetThumbnailAutosize(obs_data_get_bool(data, "thumbnail_autosize"));
 	SetThumbnails(obs_data_get_bool(data, "thumbnails"));
 	scenesList->clear();
 	obs_data_array_t *sceneArray = obs_data_get_array(data, "scenes");
@@ -1121,6 +1136,20 @@ void DownstreamKeyer::SetThumbnailSize(int size)
 		ApplyViewMode();
 }
 
+void DownstreamKeyer::SetThumbnailAutosize(bool autosize)
+{
+	if (thumbnailAutosizeCheckBox->isChecked() != autosize) {
+		thumbnailAutosizeCheckBox->blockSignals(true);
+		thumbnailAutosizeCheckBox->setChecked(autosize);
+		thumbnailAutosizeCheckBox->blockSignals(false);
+	}
+	if (thumbnailAutosize == autosize)
+		return;
+	thumbnailAutosize = autosize;
+	if (showThumbnails)
+		ApplyViewMode();
+}
+
 double DownstreamKeyer::GetAspectRatio() const
 {
 	struct obs_video_info ovi = {};
@@ -1130,13 +1159,21 @@ double DownstreamKeyer::GetAspectRatio() const
 	return 9.0 / 16.0;
 }
 
+int DownstreamKeyer::GetAvailableWidth() const
+{
+	// The scrollbar width is always reserved so its appearing or disappearing does not change the layout
+	const int scrollBar = scenesList->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, scenesList);
+	return scenesList->contentsRect().width() - scrollBar - 1;
+}
+
 int DownstreamKeyer::GetEffectiveThumbnailSize() const
 {
-	// A cell wider than the list makes the wrapping layout start with an empty row, so never exceed the width.
-	// The scrollbar width is always reserved so its appearing or disappearing does not change the result.
-	const int scrollBar = scenesList->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, scenesList);
-	const int available = scenesList->contentsRect().width() - scrollBar - 2 * THUMBNAIL_MARGIN - 1;
-	return std::max(THUMBNAIL_MIN_SIZE / 2, std::min(thumbnailSize, available));
+	if (!thumbnailAutosize)
+		return thumbnailSize;
+	// Autosize: as many columns of roughly the slider size as fit, stretched to fill the width exactly
+	const int available = GetAvailableWidth();
+	const int columns = std::max(1, available / (thumbnailSize + 2 * THUMBNAIL_MARGIN));
+	return std::max(THUMBNAIL_MIN_SIZE / 2, available / columns - 2 * THUMBNAIL_MARGIN);
 }
 
 QSize DownstreamKeyer::GetThumbnailCellSize() const
@@ -1150,20 +1187,33 @@ QSize DownstreamKeyer::GetThumbnailCellSize() const
 void DownstreamKeyer::ApplyViewMode()
 {
 	if (showThumbnails) {
-		scenesList->setFlow(QListView::LeftToRight);
-		scenesList->setWrapping(true);
 		scenesList->setResizeMode(QListView::Adjust);
-		scenesList->setGridSize(GetThumbnailCellSize());
+		UpdateThumbnailLayout();
 	} else {
 		scenesList->setFlow(QListView::TopToBottom);
 		scenesList->setWrapping(false);
 		scenesList->setResizeMode(QListView::Fixed);
 		scenesList->setGridSize(QSize());
 	}
-	thumbnailSliderAction->setVisible(showThumbnails);
+	thumbnailToolbar->setVisible(showThumbnails);
 	scenesList->doItemsLayout();
 	scenesList->viewport()->update();
 	UpdateThumbnails();
+}
+
+void DownstreamKeyer::UpdateThumbnailLayout()
+{
+	const QSize cell = GetThumbnailCellSize();
+	// A cell wider than the list makes a wrapping layout start with an empty row, so thumbnails that do not
+	// fit are laid out in a single column that scrolls horizontally instead.
+	const bool fits = cell.width() <= GetAvailableWidth();
+	const auto flow = fits ? QListView::LeftToRight : QListView::TopToBottom;
+	if (scenesList->flow() != flow)
+		scenesList->setFlow(flow);
+	if (scenesList->isWrapping() != fits)
+		scenesList->setWrapping(fits);
+	if (scenesList->gridSize() != cell)
+		scenesList->setGridSize(cell);
 }
 
 void DownstreamKeyer::UpdateThumbnails()
@@ -1209,11 +1259,8 @@ void DownstreamKeyer::UpdateThumbnails()
 
 bool DownstreamKeyer::eventFilter(QObject *obj, QEvent *event)
 {
-	if (showThumbnails && obj == scenesList && event->type() == QEvent::Resize) {
-		const QSize cell = GetThumbnailCellSize();
-		if (scenesList->gridSize() != cell)
-			scenesList->setGridSize(cell);
-	}
+	if (showThumbnails && obj == scenesList && event->type() == QEvent::Resize)
+		UpdateThumbnailLayout();
 	// Thumbnails: left click shows the scene (normal selection), right click hides it again
 	if (showThumbnails && (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease ||
 			       event->type() == QEvent::MouseButtonDblClick)) {
@@ -1319,6 +1366,27 @@ QSize DownstreamKeyerItemDelegate::sizeHint(const QStyleOptionViewItem &option, 
 	if (!keyer->GetThumbnails())
 		return QStyledItemDelegate::sizeHint(option, index);
 	return keyer->GetThumbnailCellSize();
+}
+
+void DownstreamKeyerSceneList::mousePressEvent(QMouseEvent *event)
+{
+	clicking = true;
+	QListWidget::mousePressEvent(event);
+	clicking = false;
+}
+
+void DownstreamKeyerSceneList::mouseReleaseEvent(QMouseEvent *event)
+{
+	clicking = true;
+	QListWidget::mouseReleaseEvent(event);
+	clicking = false;
+}
+
+void DownstreamKeyerSceneList::scrollTo(const QModelIndex &index, ScrollHint hint)
+{
+	if (clicking)
+		return;
+	QListWidget::scrollTo(index, hint);
 }
 
 LockedCheckBox::LockedCheckBox()
