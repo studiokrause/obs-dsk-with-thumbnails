@@ -9,12 +9,24 @@
 #include <QSpinBox>
 #include <QToolBar>
 #include <QVBoxLayout>
+#include <QApplication>
+#include <QPainter>
+#include <QWheelEvent>
 #include <obs-frontend-api.h>
 
 #include "obs-module.h"
+#include "thumbnail-renderer.hpp"
 
 #define QT_UTF8(str) QString::fromUtf8(str)
 #define QT_TO_UTF8(str) str.toUtf8().constData()
+
+#define TALLY_ROLE (Qt::UserRole + 1)
+#define THUMBNAIL_ROLE (Qt::UserRole + 2)
+#define THUMBNAIL_SERIAL_ROLE (Qt::UserRole + 3)
+
+#define THUMBNAIL_MIN_SIZE 48
+#define THUMBNAIL_MAX_SIZE 480
+#define THUMBNAIL_MARGIN 4
 
 extern obs_websocket_vendor vendor;
 
@@ -53,6 +65,8 @@ DownstreamKeyer::DownstreamKeyer(int channel, QString name, obs_view_t *v, obs_c
 	scenesList->setDragDropMode(QAbstractItemView::InternalMove);
 	scenesList->setDefaultDropAction(Qt::TargetMoveAction);
 	connect(scenesList, SIGNAL(itemSelectionChanged()), this, SLOT(on_scenesList_itemSelectionChanged()));
+	scenesList->setItemDelegate(new DownstreamKeyerItemDelegate(this));
+	scenesList->viewport()->installEventFilter(this);
 
 	layout->addWidget(scenesList);
 
@@ -122,6 +136,18 @@ DownstreamKeyer::DownstreamKeyer(int channel, QString name, obs_view_t *v, obs_c
 		}
 	}
 
+	thumbnailSlider = new QSlider(Qt::Horizontal, this);
+	thumbnailSlider->setObjectName(QStringLiteral("thumbnailSize"));
+	thumbnailSlider->setToolTip(QT_UTF8(obs_module_text("ThumbnailSize")));
+	thumbnailSlider->setRange(THUMBNAIL_MIN_SIZE, THUMBNAIL_MAX_SIZE);
+	thumbnailSlider->setSingleStep(8);
+	thumbnailSlider->setPageStep(32);
+	thumbnailSlider->setValue(thumbnailSize);
+	thumbnailSlider->setMaximumWidth(120);
+	connect(thumbnailSlider, &QSlider::valueChanged, this, &DownstreamKeyer::SetThumbnailSize);
+	thumbnailSliderAction = scenesToolbar->addWidget(thumbnailSlider);
+	thumbnailSliderAction->setVisible(false);
+
 	layout->addWidget(scenesToolbar);
 
 	layout->addItem(new QSpacerItem(150, 0, QSizePolicy::Fixed, QSizePolicy::Minimum));
@@ -152,10 +178,15 @@ DownstreamKeyer::DownstreamKeyer(int channel, QString name, obs_view_t *v, obs_c
 		hideTimer.stop();
 		on_actionSceneNull_triggered();
 	});
+
+	connect(&thumbnailTimer, &QTimer::timeout, this, &DownstreamKeyer::UpdateThumbnails);
+	thumbnailTimer.start(100);
 }
 
 DownstreamKeyer::~DownstreamKeyer()
 {
+	thumbnailTimer.stop();
+	ThumbnailRenderer::RemoveOwner(this);
 	if (view) {
 		//obs_view_set_source(view, outputChannel, nullptr);
 	} else if (canvas) {
@@ -409,6 +440,8 @@ void DownstreamKeyer::Save(obs_data_t *data)
 	obs_data_set_int(data, "hide_transition_duration", hideTransitionDuration);
 	obs_data_set_int(data, "hide_after", hideAfter);
 	obs_data_set_bool(data, "tie", tie->isChecked());
+	obs_data_set_bool(data, "thumbnails", showThumbnails);
+	obs_data_set_int(data, "thumbnail_size", thumbnailSize);
 	obs_data_array_t *sceneArray = obs_data_array_create();
 	for (int i = 0; i < scenesList->count(); i++) {
 		auto item = scenesList->item(i);
@@ -617,6 +650,9 @@ void DownstreamKeyer::Load(obs_data_t *data)
 	hideTransitionDuration = obs_data_get_int(data, "hide_transition_duration");
 	hideAfter = obs_data_get_int(data, "hide_after");
 	tie->setChecked(obs_data_get_bool(data, "tie"));
+	const int ts = (int)obs_data_get_int(data, "thumbnail_size");
+	SetThumbnailSize(ts > 0 ? ts : 160);
+	SetThumbnails(obs_data_get_bool(data, "thumbnails"));
 	scenesList->clear();
 	obs_data_array_t *sceneArray = obs_data_get_array(data, "scenes");
 	const auto sceneName = QT_UTF8(obs_data_get_string(data, "scene"));
@@ -1055,6 +1091,201 @@ void DownstreamKeyer::SetOutputChannel(int oc)
 	}
 	obs_source_release(prevSource);
 	obs_source_release(prevTransition);
+}
+
+void DownstreamKeyer::SetThumbnails(bool enabled)
+{
+	if (showThumbnails == enabled)
+		return;
+	showThumbnails = enabled;
+	ApplyViewMode();
+}
+
+void DownstreamKeyer::SetThumbnailSize(int size)
+{
+	size = std::clamp(size, THUMBNAIL_MIN_SIZE, THUMBNAIL_MAX_SIZE);
+	if (thumbnailSlider->value() != size) {
+		thumbnailSlider->blockSignals(true);
+		thumbnailSlider->setValue(size);
+		thumbnailSlider->blockSignals(false);
+	}
+	if (thumbnailSize == size)
+		return;
+	thumbnailSize = size;
+	if (showThumbnails)
+		ApplyViewMode();
+}
+
+double DownstreamKeyer::GetAspectRatio() const
+{
+	struct obs_video_info ovi = {};
+	const bool ok = canvas ? obs_canvas_get_video_info(canvas, &ovi) : obs_get_video_info(&ovi);
+	if (ok && ovi.base_width && ovi.base_height)
+		return (double)ovi.base_height / (double)ovi.base_width;
+	return 9.0 / 16.0;
+}
+
+QSize DownstreamKeyer::GetThumbnailCellSize() const
+{
+	const int textHeight = scenesList->fontMetrics().height();
+	const int height = (int)(thumbnailSize * GetAspectRatio());
+	return QSize(thumbnailSize + 2 * THUMBNAIL_MARGIN, height + textHeight + 3 * THUMBNAIL_MARGIN);
+}
+
+void DownstreamKeyer::ApplyViewMode()
+{
+	if (showThumbnails) {
+		scenesList->setFlow(QListView::LeftToRight);
+		scenesList->setWrapping(true);
+		scenesList->setResizeMode(QListView::Adjust);
+		scenesList->setGridSize(GetThumbnailCellSize());
+	} else {
+		scenesList->setFlow(QListView::TopToBottom);
+		scenesList->setWrapping(false);
+		scenesList->setResizeMode(QListView::Fixed);
+		scenesList->setGridSize(QSize());
+	}
+	thumbnailSliderAction->setVisible(showThumbnails);
+	scenesList->doItemsLayout();
+	scenesList->viewport()->update();
+	UpdateThumbnails();
+}
+
+void DownstreamKeyer::UpdateThumbnails()
+{
+	const bool thumbnails = showThumbnails && isVisible();
+	// In studio mode the program shows a private duplicate of the scene, so the original is not active
+	obs_source_t *programScene = view || canvas ? nullptr : obs_frontend_get_current_scene();
+	std::vector<obs_source_t *> sources;
+	for (int i = 0; i < scenesList->count(); i++) {
+		const auto item = scenesList->item(i);
+		if (!item)
+			continue;
+		const auto name = item->text().toUtf8();
+		obs_source_t *source = canvas ? obs_canvas_get_source_by_name(canvas, name.constData())
+					      : obs_get_source_by_name(name.constData());
+
+		// Tally: the scene is part of what is output, shown by a DSK or as (part of) the program scene
+		const bool tally = source && (obs_source_active(source) || source == programScene);
+		if (item->data(TALLY_ROLE).toBool() != tally)
+			item->setData(TALLY_ROLE, tally);
+
+		if (!source)
+			continue;
+		if (!thumbnails) {
+			obs_source_release(source);
+			continue;
+		}
+		QImage image;
+		uint64_t serial = 0;
+		if (ThumbnailRenderer::GetImage(source, image, serial) &&
+		    serial != item->data(THUMBNAIL_SERIAL_ROLE).toULongLong()) {
+			item->setData(THUMBNAIL_ROLE, image);
+			item->setData(THUMBNAIL_SERIAL_ROLE, (qulonglong)serial);
+		}
+		sources.push_back(source);
+	}
+	obs_source_release(programScene);
+	const auto width = (uint32_t)(thumbnailSize * devicePixelRatioF());
+	ThumbnailRenderer::SetSources(this, sources, width);
+	for (auto source : sources)
+		obs_source_release(source);
+}
+
+bool DownstreamKeyer::eventFilter(QObject *obj, QEvent *event)
+{
+	if (showThumbnails && event->type() == QEvent::Wheel) {
+		const auto wheelEvent = static_cast<QWheelEvent *>(event);
+		const int delta = wheelEvent->angleDelta().y();
+		if ((wheelEvent->modifiers() & Qt::ControlModifier) && delta != 0) {
+			SetThumbnailSize(thumbnailSize + (delta > 0 ? 16 : -16));
+			return true;
+		}
+	}
+	return QWidget::eventFilter(obj, event);
+}
+
+DownstreamKeyerItemDelegate::DownstreamKeyerItemDelegate(DownstreamKeyer *k) : QStyledItemDelegate(k), keyer(k) {}
+
+// QImage instead of QPixmap: a static QPixmap must not outlive the QApplication
+static const QImage &checkerboard()
+{
+	static QImage image;
+	if (image.isNull()) {
+		image = QImage(16, 16, QImage::Format_RGB32);
+		image.fill(QColor(0x40, 0x40, 0x40));
+		QPainter p(&image);
+		p.fillRect(0, 0, 8, 8, QColor(0x30, 0x30, 0x30));
+		p.fillRect(8, 8, 8, 8, QColor(0x30, 0x30, 0x30));
+	}
+	return image;
+}
+
+void DownstreamKeyerItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
+{
+	const bool tally = index.data(TALLY_ROLE).toBool();
+	const QColor tallyColor(0xe0, 0x10, 0x10);
+
+	if (!keyer->GetThumbnails()) {
+		QStyledItemDelegate::paint(painter, option, index);
+		if (tally) {
+			painter->save();
+			painter->setPen(QPen(tallyColor, 2));
+			painter->setBrush(Qt::NoBrush);
+			painter->drawRect(QRectF(option.rect).adjusted(1, 1, -1, -1));
+			painter->restore();
+		}
+		return;
+	}
+
+	QStyleOptionViewItem opt = option;
+	initStyleOption(&opt, index);
+	const QString text = opt.text;
+	opt.text.clear();
+	opt.icon = QIcon();
+	const QWidget *widget = opt.widget;
+	QStyle *style = widget ? widget->style() : QApplication::style();
+	style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, widget);
+
+	const QRect r = option.rect.adjusted(THUMBNAIL_MARGIN, THUMBNAIL_MARGIN, -THUMBNAIL_MARGIN, -THUMBNAIL_MARGIN);
+	const int textHeight = opt.fontMetrics.height();
+	const QRect thumbArea(r.left(), r.top(), r.width(), r.height() - textHeight - THUMBNAIL_MARGIN);
+
+	const QImage image = index.data(THUMBNAIL_ROLE).value<QImage>();
+	QSizeF size = image.isNull() ? QSizeF(thumbArea.width(), thumbArea.width() * keyer->GetAspectRatio())
+				     : QSizeF(image.size());
+	size.scale(QSizeF(thumbArea.size()), Qt::KeepAspectRatio);
+	QRect thumbRect(QPoint(0, 0), size.toSize());
+	thumbRect.moveCenter(thumbArea.center());
+
+	painter->save();
+	painter->fillRect(thumbRect, QBrush(checkerboard()));
+	if (!image.isNull()) {
+		painter->setRenderHint(QPainter::SmoothPixmapTransform);
+		painter->drawImage(thumbRect, image);
+	}
+	painter->setBrush(Qt::NoBrush);
+	if (tally) {
+		painter->setPen(QPen(tallyColor, 3, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
+		painter->drawRect(QRectF(thumbRect).adjusted(-1.5, -1.5, 1.5, 1.5));
+	} else {
+		painter->setPen(QPen(opt.palette.color(QPalette::Mid), 1));
+		painter->drawRect(QRectF(thumbRect).adjusted(-0.5, -0.5, 0.5, 0.5));
+	}
+
+	const QRect textRect(r.left(), r.bottom() - textHeight + 1, r.width(), textHeight);
+	const bool selected = opt.state & QStyle::State_Selected;
+	painter->setPen(opt.palette.color(selected ? QPalette::HighlightedText : QPalette::Text));
+	painter->setFont(opt.font);
+	painter->drawText(textRect, Qt::AlignCenter, opt.fontMetrics.elidedText(text, Qt::ElideRight, textRect.width()));
+	painter->restore();
+}
+
+QSize DownstreamKeyerItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const
+{
+	if (!keyer->GetThumbnails())
+		return QStyledItemDelegate::sizeHint(option, index);
+	return keyer->GetThumbnailCellSize();
 }
 
 LockedCheckBox::LockedCheckBox()

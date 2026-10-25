@@ -59,10 +59,12 @@ target_sources(${PROJECT_NAME} PRIVATE
 	downstream-keyer.cpp
 	name-dialog.cpp
 	output-source.c
+	thumbnail-renderer.cpp
 	downstream-keyer-dock.hpp
 	downstream-keyer.hpp
 	name-dialog.hpp
 	obs-websocket-api.h
+	thumbnail-renderer.hpp
 	version.h)
 
 if(BUILD_OUT_OF_TREE)

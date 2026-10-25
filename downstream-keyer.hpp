@@ -4,7 +4,9 @@
 #include <QComboBox>
 #include <QLabel>
 #include <QListWidget>
+#include <QSlider>
 #include <QSpinBox>
+#include <QStyledItemDelegate>
 #include <QTimer>
 #include <QToolBar>
 #include <QWidget>
@@ -50,6 +52,11 @@ private:
 	obs_canvas_t *canvas = nullptr;
 	get_transitions_callback_t get_transitions = nullptr;
 	void *get_transitions_data = nullptr;
+	bool showThumbnails = false;
+	int thumbnailSize = 160;
+	QTimer thumbnailTimer;
+	QSlider *thumbnailSlider;
+	QAction *thumbnailSliderAction;
 
 	static void source_rename(void *data, calldata_t *calldata);
 	static void source_remove(void *data, calldata_t *calldata);
@@ -62,6 +69,11 @@ private:
 	static bool disable_tie_hotkey(void *data, obs_hotkey_pair_id id, obs_hotkey_t *hotkey, bool pressed);
 
 	void ChangeSceneIndex(bool relative, int idx, int invalidIdx);
+	void ApplyViewMode();
+	void UpdateThumbnails();
+
+protected:
+	bool eventFilter(QObject *obj, QEvent *event) override;
 
 private slots:
 	void on_actionAddScene_triggered();
@@ -98,4 +110,24 @@ public:
 	bool RemoveScene(QString scene_name);
 	void SetTie(bool tie);
 	void SetOutputChannel(int outputChannel);
+	void SetThumbnails(bool enabled);
+	bool GetThumbnails() const { return showThumbnails; }
+	void SetThumbnailSize(int size);
+	int GetThumbnailSize() const { return thumbnailSize; }
+	QSize GetThumbnailCellSize() const;
+	double GetAspectRatio() const;
+};
+
+// Paints scenes either as a plain list or as thumbnails, with a red tally
+// border around scenes that are visible in the program output.
+class DownstreamKeyerItemDelegate : public QStyledItemDelegate {
+	Q_OBJECT
+
+private:
+	DownstreamKeyer *keyer;
+
+public:
+	explicit DownstreamKeyerItemDelegate(DownstreamKeyer *keyer);
+	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+	QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
 };

@@ -3,6 +3,7 @@
 #include "name-dialog.hpp"
 #include "obs.hpp"
 #include "obs-websocket-api.h"
+#include "thumbnail-renderer.hpp"
 #include "version.h"
 #include <obs-module.h>
 #include <QMainWindow>
@@ -20,7 +21,7 @@
 #define QT_TO_UTF8(str) str.toUtf8().constData()
 
 OBS_DECLARE_MODULE()
-OBS_MODULE_AUTHOR("Exeldro");
+OBS_MODULE_AUTHOR("Exeldro (thumbnails fork: studiokrause)");
 OBS_MODULE_USE_DEFAULT_LOCALE("downstream-keyer", "en-US")
 
 MODULE_EXTERN struct obs_source_info output_source_info;
@@ -244,8 +245,9 @@ static void frontend_save_load(obs_data_t *save_data, bool saving, void *data)
 
 bool obs_module_load()
 {
-	blog(LOG_INFO, "[Downstream Keyer] loaded version %s", PROJECT_VERSION);
+	blog(LOG_INFO, "[Downstream Keyer] loaded version %s (thumbnails fork)", PROJECT_VERSION);
 	obs_register_source(&output_source_info);
+	ThumbnailRenderer::Init();
 
 	const auto main_window = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 	obs_frontend_push_ui_translation(obs_module_get_string);
@@ -290,6 +292,7 @@ void obs_module_post_load(void)
 
 void obs_module_unload()
 {
+	ThumbnailRenderer::Shutdown();
 	obs_frontend_remove_event_callback(frontend_event, nullptr);
 	obs_frontend_remove_save_callback(frontend_save_load, nullptr);
 	_dsks.clear();
@@ -680,6 +683,15 @@ void DownstreamKeyerDock::ConfigClicked()
 	connect(a, SIGNAL(triggered()), this, SLOT(Rename()));
 	a = popup.addAction(QT_UTF8(obs_module_text("Remove")));
 	connect(a, SIGNAL(triggered()), this, SLOT(Remove()));
+	const auto keyer = dynamic_cast<DownstreamKeyer *>(tabs->currentWidget());
+	if (keyer) {
+		popup.addSeparator();
+		a = popup.addAction(QT_UTF8(obs_module_text("Thumbnails")));
+		a->setCheckable(true);
+		a->setChecked(keyer->GetThumbnails());
+		connect(a, &QAction::toggled, keyer, &DownstreamKeyer::SetThumbnails);
+		popup.addSeparator();
+	}
 	auto tm = popup.addMenu(QT_UTF8(obs_module_text("Transition")));
 	AddTransitionMenu(tm, transitionType::match);
 	tm = popup.addMenu(QT_UTF8(obs_module_text("ShowTransition")));
