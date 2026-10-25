@@ -42,8 +42,8 @@ private:
 	uint32_t transitionDuration;
 	uint32_t showTransitionDuration;
 	uint32_t hideTransitionDuration;
-	uint32_t overrideTransitionDuration;
-	uint32_t hideAfter;
+	uint32_t overrideTransitionDuration = 300;
+	uint32_t hideAfter = 0;
 	LockedCheckBox *tie;
 	obs_hotkey_id null_hotkey_id;
 	obs_hotkey_pair_id tie_hotkey_id;
@@ -114,6 +114,7 @@ public:
 	bool GetThumbnails() const { return showThumbnails; }
 	void SetThumbnailSize(int size);
 	int GetThumbnailSize() const { return thumbnailSize; }
+	int GetEffectiveThumbnailSize() const;
 	QSize GetThumbnailCellSize() const;
 	double GetAspectRatio() const;
 };

@@ -14,6 +14,8 @@ Inspired by: https://github.com/obsproject/obs-studio/pull/4491/
 
 - **Thumbnail view** – the scene list of every DSK tab can be shown as a grid of live thumbnails
   (gear menu → *Thumbnails*). Transparent areas of a scene are shown on a checkerboard.
+  In the thumbnail view **left click** shows the DSK with that scene, **right click** on the scene
+  that is shown hides it.
 - **Adjustable thumbnail size** – slider in the DSK toolbar, or **Ctrl + mouse wheel** over the list
   (48–480 px). The setting is saved per DSK in the scene collection.
 - **Tally** – a red border is drawn around a scene (thumbnail, or row in list mode) while it is visible
@@ -27,16 +29,25 @@ scenes per frame) and only while the DSK tab is visible, so the extra GPU load i
 
 - **Widok miniatur** – lista scen każdej zakładki DSK może być wyświetlana jako siatka podglądów na żywo
   (menu zębatki → *Miniatury*). Przezroczyste obszary sceny widać na szachownicy.
+  W widoku miniatur **lewy przycisk** włącza DSK z tej sceny, **prawy przycisk** na włączonej scenie
+  ją wyłącza.
 - **Regulowana wielkość miniatur** – suwak w pasku narzędzi DSK lub **Ctrl + kółko myszy** nad listą
   (48–480 px). Ustawienie zapisuje się dla każdego DSK w kolekcji scen.
 - **Tally** – czerwona ramka wokół sceny (miniatury lub wiersza listy), gdy scena jest widoczna w programie:
   wywołana przez DSK (również w trakcie przejścia), jest bieżącą sceną programu albo jest zagnieżdżona
   w tym, co jest na antenie.
 
+## Fixes compared to upstream
+
+- New keyers no longer get a random *Hide After* value (the field was not initialized). A random tiny
+  value made the DSK hide immediately, so no scene could be selected. Saved values below 100 ms are
+  treated as 0 (off).
+- Thumbnails never get wider than the dock; a cell wider than the list used to leave an empty row above the scenes.
+
 ## Versions
 
 Fork versions continue from the upstream version they are based on, with a fork number appended:
-`0.4.4.1` = upstream Downstream Keyer 0.4.4 + fork release 1.
+`0.4.4.2` = upstream Downstream Keyer 0.4.4 + fork release 2.
 
 ## Install (Windows)
 

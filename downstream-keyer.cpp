@@ -11,6 +11,7 @@
 #include <QVBoxLayout>
 #include <QApplication>
 #include <QPainter>
+#include <QMouseEvent>
 #include <QWheelEvent>
 #include <obs-frontend-api.h>
 
@@ -67,6 +68,7 @@ DownstreamKeyer::DownstreamKeyer(int channel, QString name, obs_view_t *v, obs_c
 	connect(scenesList, SIGNAL(itemSelectionChanged()), this, SLOT(on_scenesList_itemSelectionChanged()));
 	scenesList->setItemDelegate(new DownstreamKeyerItemDelegate(this));
 	scenesList->viewport()->installEventFilter(this);
+	scenesList->installEventFilter(this);
 
 	layout->addWidget(scenesList);
 
@@ -648,7 +650,10 @@ void DownstreamKeyer::Load(obs_data_t *data)
 	showTransitionDuration = obs_data_get_int(data, "show_transition_duration");
 	SetTransition(obs_data_get_string(data, "hide_transition"), transitionType::hide);
 	hideTransitionDuration = obs_data_get_int(data, "hide_transition_duration");
-	hideAfter = obs_data_get_int(data, "hide_after");
+	hideAfter = (uint32_t)obs_data_get_int(data, "hide_after");
+	// Earlier versions saved an uninitialized value for new keyers; such tiny values hide the DSK instantly
+	if (hideAfter < 100)
+		hideAfter = 0;
 	tie->setChecked(obs_data_get_bool(data, "tie"));
 	const int ts = (int)obs_data_get_int(data, "thumbnail_size");
 	SetThumbnailSize(ts > 0 ? ts : 160);
@@ -1125,11 +1130,21 @@ double DownstreamKeyer::GetAspectRatio() const
 	return 9.0 / 16.0;
 }
 
+int DownstreamKeyer::GetEffectiveThumbnailSize() const
+{
+	// A cell wider than the list makes the wrapping layout start with an empty row, so never exceed the width.
+	// The scrollbar width is always reserved so its appearing or disappearing does not change the result.
+	const int scrollBar = scenesList->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, scenesList);
+	const int available = scenesList->contentsRect().width() - scrollBar - 2 * THUMBNAIL_MARGIN - 1;
+	return std::max(THUMBNAIL_MIN_SIZE / 2, std::min(thumbnailSize, available));
+}
+
 QSize DownstreamKeyer::GetThumbnailCellSize() const
 {
+	const int size = GetEffectiveThumbnailSize();
 	const int textHeight = scenesList->fontMetrics().height();
-	const int height = (int)(thumbnailSize * GetAspectRatio());
-	return QSize(thumbnailSize + 2 * THUMBNAIL_MARGIN, height + textHeight + 3 * THUMBNAIL_MARGIN);
+	const int height = (int)(size * GetAspectRatio());
+	return QSize(size + 2 * THUMBNAIL_MARGIN, height + textHeight + 3 * THUMBNAIL_MARGIN);
 }
 
 void DownstreamKeyer::ApplyViewMode()
@@ -1186,7 +1201,7 @@ void DownstreamKeyer::UpdateThumbnails()
 		sources.push_back(source);
 	}
 	obs_source_release(programScene);
-	const auto width = (uint32_t)(thumbnailSize * devicePixelRatioF());
+	const auto width = (uint32_t)(GetEffectiveThumbnailSize() * devicePixelRatioF());
 	ThumbnailRenderer::SetSources(this, sources, width);
 	for (auto source : sources)
 		obs_source_release(source);
@@ -1194,6 +1209,24 @@ void DownstreamKeyer::UpdateThumbnails()
 
 bool DownstreamKeyer::eventFilter(QObject *obj, QEvent *event)
 {
+	if (showThumbnails && obj == scenesList && event->type() == QEvent::Resize) {
+		const QSize cell = GetThumbnailCellSize();
+		if (scenesList->gridSize() != cell)
+			scenesList->setGridSize(cell);
+	}
+	// Thumbnails: left click shows the scene (normal selection), right click hides it again
+	if (showThumbnails && (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease ||
+			       event->type() == QEvent::MouseButtonDblClick)) {
+		const auto mouseEvent = static_cast<QMouseEvent *>(event);
+		if (mouseEvent->button() == Qt::RightButton) {
+			if (event->type() == QEvent::MouseButtonPress) {
+				const auto item = scenesList->itemAt(mouseEvent->position().toPoint());
+				if (item && item->isSelected())
+					on_actionSceneNull_triggered();
+			}
+			return true;
+		}
+	}
 	if (showThumbnails && event->type() == QEvent::Wheel) {
 		const auto wheelEvent = static_cast<QWheelEvent *>(event);
 		const int delta = wheelEvent->angleDelta().y();
