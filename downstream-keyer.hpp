@@ -26,7 +26,8 @@ public:
 	explicit LockedCheckBox(QWidget *parent);
 };
 
-enum transitionType { match, show, hide, override };
+// change: from one scene of the DSK to another of the same DSK
+enum transitionType { match, show, hide, override, change };
 
 // Scene list that does not scroll to the clicked scene, so a partly visible scene does not jump.
 class DownstreamKeyerSceneList : public QListWidget {
@@ -52,12 +53,14 @@ private:
 	obs_source_t *showTransition;
 	obs_source_t *hideTransition;
 	obs_source_t *overrideTransition;
+	obs_source_t *changeTransition = nullptr;
 	DownstreamKeyerSceneList *scenesList;
 	QToolBar *scenesToolbar;
 	uint32_t transitionDuration;
 	uint32_t showTransitionDuration;
 	uint32_t hideTransitionDuration;
 	uint32_t overrideTransitionDuration = 300;
+	uint32_t changeTransitionDuration = 300;
 	uint32_t hideAfter = 0;
 	LockedCheckBox *tie;
 	obs_hotkey_id null_hotkey_id;
@@ -89,6 +92,7 @@ private:
 	void ApplyViewMode();
 	void UpdateThumbnailLayout();
 	int GetAvailableWidth() const;
+	bool NeedsVerticalScrollBar() const;
 	int GetThumbnailSizeForWidth(int available) const;
 	QSize GetCellSizeForThumbnail(int size) const;
 	void UpdateThumbnails();

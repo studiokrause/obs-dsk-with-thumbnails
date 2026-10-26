@@ -694,6 +694,8 @@ void DownstreamKeyerDock::ConfigClicked()
 	}
 	auto tm = popup.addMenu(QT_UTF8(obs_module_text("Transition")));
 	AddTransitionMenu(tm, transitionType::match);
+	tm = popup.addMenu(QT_UTF8(obs_module_text("ChangeTransition")));
+	AddTransitionMenu(tm, transitionType::change);
 	tm = popup.addMenu(QT_UTF8(obs_module_text("ShowTransition")));
 	AddTransitionMenu(tm, transitionType::show);
 	tm = popup.addMenu(QT_UTF8(obs_module_text("HideTransition")));
@@ -1119,6 +1121,8 @@ void DownstreamKeyerDock::set_transition(obs_data_t *request_data, obs_data_t *r
 		tt = transitionType::show;
 	} else if (strcmp(transition_type, "hide") == 0 || strcmp(transition_type, "Hide") == 0) {
 		tt = transitionType::hide;
+	} else if (strcmp(transition_type, "change") == 0 || strcmp(transition_type, "Change") == 0) {
+		tt = transitionType::change;
 	} else {
 		tt = transitionType::match;
 	}

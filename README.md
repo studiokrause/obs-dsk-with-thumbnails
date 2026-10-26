@@ -23,6 +23,9 @@ Inspired by: https://github.com/obsproject/obs-studio/pull/4491/
   columns of roughly the slider size as fit, stretched to fill the width).
 - Clicking a scene does not scroll the list, also when the scene is only partly visible.
 - All thumbnail settings are saved per DSK in the scene collection.
+- **Scene Change Transition** – gear menu: transition used when the DSK switches from one of its scenes
+  to another. When it is not set, *Transition* is used, as in the original plugin. Also settable over
+  obs-websocket (`dsk_set_transition` with `transition_type: "change"`).
 - **Tally** – a red border is drawn around a scene (thumbnail, or row in list mode) while it is visible
   in the program output: shown by the DSK (also during its transition), being the current program scene,
   or nested in what is on air.
@@ -44,10 +47,14 @@ scenes per frame) and only while the DSK tab is visible, so the extra GPU load i
 - Kliknięcie sceny nie przewija listy, również gdy scena jest widoczna tylko częściowo.
 - Ustawienia miniatur zapisują się dla każdego DSK w kolekcji scen.
 
-### Przejścia i „Tie” (zachowanie z oryginału)
+- **Przejście między scenami DSK** – menu zębatki: przejście używane, gdy DSK przełącza się z jednej
+  swojej sceny na inną. Gdy nie jest ustawione, używane jest *Przejście*, jak w oryginale.
 
-- *Show Transition* działa tylko wtedy, gdy DSK niczego nie wyświetla. Przełączenie z jednej sceny DSK
-  na inną używa *Transition*, a wyłączenie – *Hide Transition* (gdy puste, też *Transition*).
+### Przejścia i „Tie”
+
+- *Przejście pokazania* działa tylko wtedy, gdy DSK niczego nie wyświetla, a *Przejście ukrycia* –
+  przy wyłączaniu. Przełączenie z jednej sceny DSK na inną używa *Przejścia między scenami DSK*.
+  Każde nieustawione z nich zastępuje zwykłe *Przejście*.
 - Pole z kłódką w pasku narzędzi to *Tie*: gdy jest zaznaczone, kliknięcie sceny nie zmienia DSK od razu –
   zmiana następuje dopiero przy przełączeniu sceny głównej.
 - **Tally** – czerwona ramka wokół sceny (miniatury lub wiersza listy), gdy scena jest widoczna w programie:
@@ -64,7 +71,7 @@ scenes per frame) and only while the DSK tab is visible, so the extra GPU load i
 ## Versions
 
 Fork versions continue from the upstream version they are based on, with a fork number appended:
-`0.4.4.4` = upstream Downstream Keyer 0.4.4 + fork release 4.
+`0.4.4.5` = upstream Downstream Keyer 0.4.4 + fork release 5.
 
 ## Install (Windows)
 

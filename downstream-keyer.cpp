@@ -11,6 +11,7 @@
 #include <QVBoxLayout>
 #include <QApplication>
 #include <QPainter>
+#include <QScrollBar>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <obs-frontend-api.h>
@@ -232,6 +233,11 @@ DownstreamKeyer::~DownstreamKeyer()
 		obs_source_release(overrideTransition);
 		overrideTransition = nullptr;
 	}
+	if (changeTransition) {
+		obs_transition_clear(changeTransition);
+		obs_source_release(changeTransition);
+		changeTransition = nullptr;
+	}
 	const auto sh = obs_get_signal_handler();
 	signal_handler_disconnect(sh, "source_rename", source_rename, this);
 	signal_handler_disconnect(sh, "source_remove", source_remove, this);
@@ -364,6 +370,9 @@ void DownstreamKeyer::apply_source(obs_source_t *const newSource)
 		if (overrideTransition) {
 			newTransition = overrideTransition;
 			newTransitionDuration = overrideTransitionDuration;
+		} else if (prevSource && newSource && changeTransition) {
+			newTransition = changeTransition;
+			newTransitionDuration = changeTransitionDuration;
 		} else if (transition)
 			newTransition = transition;
 	}
@@ -453,6 +462,8 @@ void DownstreamKeyer::Save(obs_data_t *data)
 	obs_data_set_int(data, "show_transition_duration", showTransitionDuration);
 	obs_data_set_string(data, "hide_transition", hideTransition ? obs_source_get_name(hideTransition) : "");
 	obs_data_set_int(data, "hide_transition_duration", hideTransitionDuration);
+	obs_data_set_string(data, "change_transition", changeTransition ? obs_source_get_name(changeTransition) : "");
+	obs_data_set_int(data, "change_transition_duration", changeTransitionDuration);
 	obs_data_set_int(data, "hide_after", hideAfter);
 	obs_data_set_bool(data, "tie", tie->isChecked());
 	obs_data_set_bool(data, "thumbnails", showThumbnails);
@@ -503,6 +514,8 @@ std::string DownstreamKeyer::GetTransition(enum transitionType transition_type)
 		return obs_source_get_name(hideTransition);
 	if (transition_type == transitionType::override && overrideTransition)
 		return obs_source_get_name(overrideTransition);
+	if (transition_type == transitionType::change && changeTransition)
+		return obs_source_get_name(changeTransition);
 	return "";
 }
 
@@ -515,6 +528,8 @@ void DownstreamKeyer::SetTransition(const char *transition_name, enum transition
 		oldTransition = hideTransition;
 	else if (transition_type == transitionType::override)
 		oldTransition = overrideTransition;
+	else if (transition_type == transitionType::change)
+		oldTransition = changeTransition;
 
 	if (!oldTransition && (!transition_name || !strlen(transition_name)))
 		return;
@@ -540,6 +555,8 @@ void DownstreamKeyer::SetTransition(const char *transition_name, enum transition
 		hideTransition = newTransition;
 	else if (transition_type == transitionType::override)
 		overrideTransition = newTransition;
+	else if (transition_type == transitionType::change)
+		changeTransition = newTransition;
 	else
 		transition = newTransition;
 	obs_source_t *prevSource = view     ? obs_view_get_source(view, outputChannel)
@@ -598,6 +615,8 @@ void DownstreamKeyer::SetTransitionDuration(int duration, enum transitionType tr
 		hideTransitionDuration = duration;
 	else if (transition_type == transitionType::override)
 		overrideTransitionDuration = duration;
+	else if (transition_type == transitionType::change)
+		changeTransitionDuration = duration;
 }
 
 int DownstreamKeyer::GetTransitionDuration(enum transitionType transition_type)
@@ -608,6 +627,8 @@ int DownstreamKeyer::GetTransitionDuration(enum transitionType transition_type)
 		return hideTransitionDuration;
 	if (transition_type == transitionType::override)
 		return overrideTransitionDuration;
+	if (transition_type == transitionType::change)
+		return changeTransitionDuration;
 	return transitionDuration;
 }
 
@@ -664,6 +685,10 @@ void DownstreamKeyer::Load(obs_data_t *data)
 	showTransitionDuration = obs_data_get_int(data, "show_transition_duration");
 	SetTransition(obs_data_get_string(data, "hide_transition"), transitionType::hide);
 	hideTransitionDuration = obs_data_get_int(data, "hide_transition_duration");
+	SetTransition(obs_data_get_string(data, "change_transition"), transitionType::change);
+	changeTransitionDuration = (uint32_t)obs_data_get_int(data, "change_transition_duration");
+	if (!changeTransitionDuration)
+		changeTransitionDuration = 300;
 	hideAfter = (uint32_t)obs_data_get_int(data, "hide_after");
 	// Earlier versions saved an uninitialized value for new keyers; such tiny values hide the DSK instantly
 	if (hideAfter < 100)
@@ -1066,7 +1091,7 @@ void DownstreamKeyer::SetOutputChannel(int oc)
 	}
 	if (prevTransition) {
 		if (prevTransition == transition || prevTransition == showTransition || prevTransition == hideTransition ||
-		    prevTransition == overrideTransition) {
+		    prevTransition == overrideTransition || prevTransition == changeTransition) {
 			if (view) {
 				obs_view_set_source(view, outputChannel, nullptr);
 			} else if (canvas) {
@@ -1175,20 +1200,25 @@ QSize DownstreamKeyer::GetCellSizeForThumbnail(int size) const
 	return QSize(size + 2 * THUMBNAIL_MARGIN, height + textHeight + 3 * THUMBNAIL_MARGIN);
 }
 
-int DownstreamKeyer::GetAvailableWidth() const
+bool DownstreamKeyer::NeedsVerticalScrollBar() const
 {
-	// Room for the vertical scrollbar is reserved only when the thumbnails laid out at the full width would
-	// not fit in height. Deciding from the computed layout, not from the scrollbar's current visibility,
-	// avoids a loop of the scrollbar hiding and showing while the thumbnails resize.
+	// Decided from the computed layout at the full width, not from the scrollbar's current visibility, which
+	// would make the scrollbar hide and show in a loop while the thumbnails resize.
 	const QRect rect = scenesList->contentsRect();
 	const int full = rect.width() - 1;
-	const int scrollBar = scenesList->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, scenesList);
 	const QSize cell = GetCellSizeForThumbnail(GetThumbnailSizeForWidth(full));
 	const bool fits = cell.width() <= full;
 	const int columns = fits ? std::max(1, full / cell.width()) : 1;
 	const int rows = (scenesList->count() + columns - 1) / columns;
-	const int height = rect.height() - (fits ? 0 : scrollBar);
-	return rows * cell.height() > height ? full - scrollBar : full;
+	const int height = rect.height() - (fits ? 0 : scenesList->horizontalScrollBar()->sizeHint().height());
+	return rows * cell.height() > height;
+}
+
+int DownstreamKeyer::GetAvailableWidth() const
+{
+	// The size hint follows the theme's stylesheet, unlike the style's default scrollbar extent
+	const int full = scenesList->contentsRect().width() - 1;
+	return NeedsVerticalScrollBar() ? full - scenesList->verticalScrollBar()->sizeHint().width() : full;
 }
 
 int DownstreamKeyer::GetEffectiveThumbnailSize() const
@@ -1211,6 +1241,7 @@ void DownstreamKeyer::ApplyViewMode()
 		scenesList->setWrapping(false);
 		scenesList->setResizeMode(QListView::Fixed);
 		scenesList->setGridSize(QSize());
+		scenesList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 	}
 	thumbnailToolbar->setVisible(showThumbnails);
 	scenesList->doItemsLayout();
@@ -1220,6 +1251,12 @@ void DownstreamKeyer::ApplyViewMode()
 
 void DownstreamKeyer::UpdateThumbnailLayout()
 {
+	// The vertical scrollbar is switched on or off explicitly, so the viewport always has exactly the width
+	// the cells were computed for. If Qt decided on its own, a cell could end up wider than the space left
+	// in a row and the wrapping layout would start with an empty row.
+	const auto policy = NeedsVerticalScrollBar() ? Qt::ScrollBarAlwaysOn : Qt::ScrollBarAlwaysOff;
+	if (scenesList->verticalScrollBarPolicy() != policy)
+		scenesList->setVerticalScrollBarPolicy(policy);
 	const QSize cell = GetThumbnailCellSize();
 	// A cell wider than the list makes a wrapping layout start with an empty row, so thumbnails that do not
 	// fit are laid out in a single column that scrolls horizontally instead.
